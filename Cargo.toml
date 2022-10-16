@@ -1,0 +1,8 @@
+[package]
+name = "minimizer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+minify-html = "0.10.2"
+git2 = "0.15.0"

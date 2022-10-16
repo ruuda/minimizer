@@ -185,7 +185,7 @@ fn minimize_blob_cached<'a>(
 ///
 /// This minifies .html files, and adds a Gzip and Brotli compressed version as
 /// well. Non-interesting files are dropped from the tree.
-fn minimize_tree(cache: &mut Cache, repo: &Repository, tree: &Tree) -> Result<Option<Oid>> {
+fn minimize_tree(cache: &mut Cache, repo: &Repository, tree: &Tree, depth: u32) -> Result<Option<Oid>> {
     let base_tree = None;
     let mut builder = repo.treebuilder(base_tree)?;
 
@@ -197,8 +197,15 @@ fn minimize_tree(cache: &mut Cache, repo: &Repository, tree: &Tree) -> Result<Op
 
         match entry.kind() {
             Some(ObjectType::Tree) => {
+                // Skip the theme, MkDocs includes this because I put the theme
+                // in a subdirectory of the docs, but it really shouldn't be
+                // there.
+                if name == "theme" && depth == 0 {
+                    continue
+                }
+
                 let subtree = repo.find_tree(entry.id())?;
-                if let Some(sub_oid) = minimize_tree(cache, repo, &subtree)? {
+                if let Some(sub_oid) = minimize_tree(cache, repo, &subtree, depth + 1)? {
                     builder.insert(name, sub_oid, filemode_directory)?;
                 }
             }
@@ -207,7 +214,7 @@ fn minimize_tree(cache: &mut Cache, repo: &Repository, tree: &Tree) -> Result<Op
                     let blobs = minimize_blob_cached(cache, repo, entry.id())?;
                     builder.insert(name, blobs.minified, filemode_regular)?;
                     builder.insert(format!("{name}.gz"), blobs.gz, filemode_regular)?;
-                    builder.insert(format!("{name}.br"), blobs.gz, filemode_regular)?;
+                    builder.insert(format!("{name}.br"), blobs.br, filemode_regular)?;
                 }
             }
             ot => panic!("Unexpected object type in tree: {:?}", ot),
@@ -227,7 +234,9 @@ fn minimize(cache: &mut Cache, repo: &Repository) -> Result<()> {
     println!("Branch: {:?}", pages_branch.get().target());
     let tree = pages_branch.get().peel_to_tree()?;
 
-    minimize_tree(cache, repo, &tree)?;
+    let initial_depth = 0;
+    let tree_min = minimize_tree(cache, repo, &tree, initial_depth)?;
+    println!("Minimized tree: {:?}", tree_min);
 
     Ok(())
 }

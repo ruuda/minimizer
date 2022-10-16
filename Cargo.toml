@@ -4,5 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-minify-html = "0.10.2"
+brotli = "3.3.4"
 git2 = "0.15.0"
+minify-html = "0.10.2"
+zopfli  = "0.7.1"

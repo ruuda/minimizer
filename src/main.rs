@@ -2,6 +2,26 @@ use git2::{BranchType, ObjectType, Oid, Repository, Tree};
 
 type Result<T> = std::result::Result<T, git2::Error>;
 
+fn compress_zopfli(input: &[u8]) -> Vec<u8> {
+    let opts = zopfli::Options {
+        // Be slow but compress well, only really feasible for small files, but
+        // my html files are small, so that's fine.
+        iteration_count: std::num::NonZeroU8::new(20).unwrap(),
+        // Not sure what this does, use the default value.
+        maximum_block_splits: 15,
+    };
+    let mut output = Vec::new();
+    let input = std::io::Cursor::new(input);
+    zopfli::compress(&opts, &zopfli::Format::Gzip, input, &mut output)
+        .expect("Zopfli compression should not fail, we don't do IO here.");
+
+    output
+}
+
+fn compress_brotli(input: &[u8]) -> Vec<u8> {
+    todo!()
+}
+
 fn minimize_blob(repo: &Repository, _name: &str, id: Oid) -> Result<Oid> {
     let blob = repo.find_blob(id)?;
 
@@ -20,20 +40,23 @@ fn minimize_blob(repo: &Repository, _name: &str, id: Oid) -> Result<Oid> {
         remove_processing_instructions: true,
     };
     let minified_bytes = minify_html::minify(blob.content(), &cfg);
+    let gzip_bytes = compress_zopfli(&minified_bytes[..]);
 
     // Store the minified version in a blob.
-    let result = repo.blob(&minified_bytes[..])?;
+    let blob_raw = repo.blob(&minified_bytes[..])?;
 
     println!(
-        "  -> shrunk {} to {} ({:.1}%)",
+        "  -> shrunk {} to {} ({:.1}%), gzipped to {} ({:.1}%)",
         blob.size(),
         minified_bytes.len(),
-        100.0 * minified_bytes.len() as f32 / blob.size() as f32
+        100.0 * minified_bytes.len() as f32 / blob.size() as f32,
+        gzip_bytes.len(),
+        100.0 * gzip_bytes.len() as f32 / blob.size() as f32,
     );
 
     // TODO: Actually, instead of returning the oid, we should probably append
     // an entry to some in-progress tree.
-    Ok(result)
+    Ok(blob_raw)
 }
 
 fn minimize_tree(repo: &Repository, tree: &Tree) -> Result<()> {

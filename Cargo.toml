@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-brotli = "3.3.4"
+brotli2 = { git = "https://github.com/ruuda/brotli2-rs", rev = "ec1c87ed98b25c30b24c97ebf376d067233acfe4" }
+brotli-sys = { git = "https://github.com/ruuda/brotli2-rs", rev = "ec1c87ed98b25c30b24c97ebf376d067233acfe4" }
 git2 = "0.15.0"
 minify-html = "0.10.2"
 zopfli  = "0.7.1"

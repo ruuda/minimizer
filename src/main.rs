@@ -103,21 +103,15 @@ fn compress_zopfli(input: &[u8]) -> Vec<u8> {
 }
 
 fn compress_brotli(input: &[u8]) -> Vec<u8> {
-    let mut output = Vec::new();
-    let mut input = std::io::Cursor::new(input);
-
-    use brotli::enc::backward_references::{BrotliEncoderMode, BrotliEncoderParams};
-
-    let params = BrotliEncoderParams {
-        quality: 11,
-        mode: BrotliEncoderMode::BROTLI_MODE_TEXT,
-        ..BrotliEncoderParams::default()
-    };
-
-    brotli::enc::BrotliCompress(&mut input, &mut output, &params)
-        .expect("Brotli compression should not fail, we don't do IO here.");
-
-    output
+    use io::Write;
+    let level = 11;
+    let mut encoder = brotli2::write::BrotliEncoder::new(Vec::new(), level);
+    encoder
+        .write_all(input)
+        .expect("No IO happens here, should not fail.");
+    encoder
+        .finish()
+        .expect("No IO happens here, should not fail.")
 }
 
 fn minimize_blob(repo: &Repository, id: Oid) -> Result<MinifiedBlobs> {

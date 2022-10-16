@@ -24,7 +24,12 @@ fn minimize_blob(repo: &Repository, _name: &str, id: Oid) -> Result<Oid> {
     // Store the minified version in a blob.
     let result = repo.blob(&minified_bytes[..])?;
 
-    println!("  -> shrunk {} to {} ({:.1}%)", blob.size(), minified_bytes.len(), 100.0 * minified_bytes.len() as f32 / blob.size() as f32);
+    println!(
+        "  -> shrunk {} to {} ({:.1}%)",
+        blob.size(),
+        minified_bytes.len(),
+        100.0 * minified_bytes.len() as f32 / blob.size() as f32
+    );
 
     // TODO: Actually, instead of returning the oid, we should probably append
     // an entry to some in-progress tree.
@@ -33,7 +38,11 @@ fn minimize_blob(repo: &Repository, _name: &str, id: Oid) -> Result<Oid> {
 
 fn minimize_tree(repo: &Repository, tree: &Tree) -> Result<()> {
     for entry in tree.iter() {
-        println!("{:?} {}", entry.id(), entry.name().expect("Invalid filename"));
+        println!(
+            "{:?} {}",
+            entry.id(),
+            entry.name().expect("Invalid filename")
+        );
 
         match entry.kind() {
             Some(ObjectType::Tree) => {

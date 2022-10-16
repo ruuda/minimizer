@@ -19,7 +19,22 @@ fn compress_zopfli(input: &[u8]) -> Vec<u8> {
 }
 
 fn compress_brotli(input: &[u8]) -> Vec<u8> {
-    todo!()
+    let mut output = Vec::new();
+    let mut input = std::io::Cursor::new(input);
+
+    use brotli::enc::backward_references::{BrotliEncoderMode, BrotliEncoderParams};
+
+    let params = BrotliEncoderParams {
+        quality: 11,
+        mode: BrotliEncoderMode::BROTLI_MODE_TEXT,
+        ..BrotliEncoderParams::default()
+    };
+    println!("Brotli: {:?}", params);
+
+    brotli::enc::BrotliCompress(&mut input, &mut output, &params)
+        .expect("Brotli compression should not fail, we don't do IO here.");
+
+    output
 }
 
 fn minimize_blob(repo: &Repository, _name: &str, id: Oid) -> Result<Oid> {
@@ -40,18 +55,21 @@ fn minimize_blob(repo: &Repository, _name: &str, id: Oid) -> Result<Oid> {
         remove_processing_instructions: true,
     };
     let minified_bytes = minify_html::minify(blob.content(), &cfg);
-    let gzip_bytes = compress_zopfli(&minified_bytes[..]);
+    let gz_bytes = compress_zopfli(&minified_bytes[..]);
+    let br_bytes = compress_brotli(&minified_bytes[..]);
 
     // Store the minified version in a blob.
     let blob_raw = repo.blob(&minified_bytes[..])?;
 
     println!(
-        "  -> shrunk {} to {} ({:.1}%), gzipped to {} ({:.1}%)",
+        "  -> shrunk {} to {} ({:.1}%), gzipped to {} ({:.1}%), brotlid to {} ({:.1}%)",
         blob.size(),
         minified_bytes.len(),
         100.0 * minified_bytes.len() as f32 / blob.size() as f32,
-        gzip_bytes.len(),
-        100.0 * gzip_bytes.len() as f32 / blob.size() as f32,
+        gz_bytes.len(),
+        100.0 * gz_bytes.len() as f32 / blob.size() as f32,
+        br_bytes.len(),
+        100.0 * br_bytes.len() as f32 / blob.size() as f32,
     );
 
     // TODO: Actually, instead of returning the oid, we should probably append

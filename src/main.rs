@@ -117,8 +117,6 @@ fn compress_brotli(input: &[u8]) -> Vec<u8> {
 fn minimize_blob(repo: &Repository, id: Oid) -> Result<MinifiedBlobs> {
     let blob = repo.find_blob(id)?;
 
-    // TODO: Cache this.
-
     let cfg = minify_html::Cfg {
         do_not_minify_doctype: true,
         ensure_spec_compliant_unquoted_attribute_values: true,

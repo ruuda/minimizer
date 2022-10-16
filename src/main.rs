@@ -129,9 +129,21 @@ fn minimize_blob(repo: &Repository, id: Oid) -> Result<MinifiedBlobs> {
         remove_bangs: false,
         remove_processing_instructions: true,
     };
+
+    let mut stdout = std::io::stdout().lock();
+    let mut print_status = |status| {
+        use std::io::Write;
+        write!(stdout, "\r{:?}: {}", id, status).unwrap();
+        stdout.flush().unwrap();
+    };
+
+    print_status("minify");
     let minified_bytes = minify_html::minify(blob.content(), &cfg);
+    print_status("zopfli");
     let gz_bytes = compress_zopfli(&minified_bytes[..]);
+    print_status("brotli");
     let br_bytes = compress_brotli(&minified_bytes[..]);
+    print_status("complete\n");
 
     println!(
         "  -> shrunk {} to {} ({:.1}%), gzipped to {} ({:.1}%), brotlid to {} ({:.1}%)",
@@ -169,31 +181,45 @@ fn minimize_blob_cached<'a>(
     Ok(blobs)
 }
 
-fn minimize_tree(cache: &mut Cache, repo: &Repository, tree: &Tree) -> Result<()> {
+/// Given a Git tree, make a copy where all html files are compressed.
+///
+/// This minifies .html files, and adds a Gzip and Brotli compressed version as
+/// well. Non-interesting files are dropped from the tree.
+fn minimize_tree(cache: &mut Cache, repo: &Repository, tree: &Tree) -> Result<Option<Oid>> {
+    let base_tree = None;
+    let mut builder = repo.treebuilder(base_tree)?;
+
+    let filemode_directory = 0o040000;
+    let filemode_regular = 0o0100644;
+
     for entry in tree.iter() {
-        println!(
-            "{:?} {}",
-            entry.id(),
-            entry.name().expect("Invalid filename")
-        );
+        let name = entry.name().expect("Invalid name in tree entry.");
 
         match entry.kind() {
             Some(ObjectType::Tree) => {
                 let subtree = repo.find_tree(entry.id())?;
-                minimize_tree(cache, repo, &subtree)?;
+                if let Some(sub_oid) = minimize_tree(cache, repo, &subtree)? {
+                    builder.insert(name, sub_oid, filemode_directory)?;
+                }
             }
             Some(ObjectType::Blob) => {
-                let name = entry.name().expect("Huh, unnamed tree entry?");
                 if name.ends_with(".html") {
                     let blobs = minimize_blob_cached(cache, repo, entry.id())?;
-                    println!(" -> {:?}", blobs);
+                    builder.insert(name, blobs.minified, filemode_regular)?;
+                    builder.insert(format!("{name}.gz"), blobs.gz, filemode_regular)?;
+                    builder.insert(format!("{name}.br"), blobs.gz, filemode_regular)?;
                 }
             }
             ot => panic!("Unexpected object type in tree: {:?}", ot),
         }
     }
 
-    Ok(())
+    if builder.is_empty() {
+        Ok(None)
+    } else {
+        let tree_oid = builder.write()?;
+        Ok(Some(tree_oid))
+    }
 }
 
 fn minimize(cache: &mut Cache, repo: &Repository) -> Result<()> {

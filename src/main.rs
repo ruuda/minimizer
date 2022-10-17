@@ -12,6 +12,41 @@ struct MinifiedBlobs {
     minified: Oid,
     gz: Oid,
     br: Oid,
+    sizes: Sizes,
+}
+
+/// Sizes, in bytes, of an html document in various forms.
+#[derive(Debug, Copy, Clone, Default)]
+struct Sizes {
+    original_len: usize,
+    minified_len: usize,
+    gz_len: usize,
+    br_len: usize,
+}
+
+impl std::fmt::Display for Sizes {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "Original: {}, Minified: {} ({:.1}%), Gzip: {} ({:.1}%), Brotli: {} ({:.1}%)",
+            self.original_len,
+            self.minified_len, 100.0 * self.minified_len as f32 / self.original_len as f32,
+            self.gz_len, 100.0 * self.gz_len as f32 / self.original_len as f32,
+            self.br_len, 100.0 * self.br_len as f32 / self.original_len as f32,
+        )
+    }
+}
+
+impl std::ops::Add for Sizes {
+    type Output = Self;
+    fn add(self, other: Self) -> Self {
+        Self {
+            original_len: self.original_len + other.original_len,
+            minified_len: self.minified_len + other.minified_len,
+            gz_len: self.gz_len + other.gz_len,
+            br_len: self.br_len + other.br_len,
+        }
+    }
 }
 
 /// A cache of minified and comprssed blobs.
@@ -22,7 +57,11 @@ struct MinifiedBlobs {
 struct Cache(BTreeMap<Oid, MinifiedBlobs>);
 
 impl Cache {
-    const HEADER: &'static str = "blob\tminified\tgz\tbr";
+    const HEADER: &'static str = "\
+        blob\tblob_len\t\
+        minified\tminified_len\t\
+        gz\tgz_len\t\
+        br\tbr_len";
 
     pub fn new() -> Self {
         Self(BTreeMap::new())
@@ -33,17 +72,23 @@ impl Cache {
         for (k, v) in self.0.iter() {
             writeln!(
                 out,
-                "{}\t{}\t{}\t{}",
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 k.to_string(),
+                v.sizes.original_len,
                 v.minified.to_string(),
+                v.sizes.minified_len,
                 v.gz.to_string(),
+                v.sizes.gz_len,
                 v.br.to_string(),
+                v.sizes.br_len,
             )?;
         }
         Ok(())
     }
 
     fn deserialize<R: io::BufRead>(input: R) -> std::io::Result<Self> {
+        use std::str::FromStr;
+
         let mut result = BTreeMap::new();
         let mut lines = input.lines();
 
@@ -55,17 +100,39 @@ impl Cache {
         // Skip the header row, it is just for clarity.
         for line_opt in lines {
             let line = line_opt?;
-            let mut parts = line.split('\t');
-            let mut next_oid = || {
-                Oid::from_str(parts.next().expect("Invalid format, expected oid."))
+
+            let as_oid = |part: Option<&str>| {
+                Oid::from_str(part.expect("Invalid format, expected oid."))
                     .expect("Invalid oid.")
             };
+            let as_usize = |part: Option<&str>| {
+                usize::from_str(part.expect("Invalid format, expected len."))
+                    .expect("Invalid len.")
+            };
+
+            let mut parts = line.split('\t');
+
+            let key = as_oid(parts.next());
+            let original_len = as_usize(parts.next());
+            let minified = as_oid(parts.next());
+            let minified_len = as_usize(parts.next());
+            let gz = as_oid(parts.next());
+            let gz_len = as_usize(parts.next());
+            let br = as_oid(parts.next());
+            let br_len = as_usize(parts.next());
+
             result.insert(
-                next_oid(),
+                key,
                 MinifiedBlobs {
-                    minified: next_oid(),
-                    gz: next_oid(),
-                    br: next_oid(),
+                    minified,
+                    gz,
+                    br,
+                    sizes: Sizes {
+                        original_len,
+                        minified_len,
+                        gz_len,
+                        br_len,
+                    },
                 },
             );
         }
@@ -145,22 +212,17 @@ fn minimize_blob(repo: &Repository, id: Oid) -> Result<MinifiedBlobs> {
     let br_bytes = compress_brotli(&minified_bytes[..]);
     print_status("complete\n");
 
-    println!(
-        "  -> shrunk {} to {} ({:.1}%), gzipped to {} ({:.1}%), brotlid to {} ({:.1}%)",
-        blob.size(),
-        minified_bytes.len(),
-        100.0 * minified_bytes.len() as f32 / blob.size() as f32,
-        gz_bytes.len(),
-        100.0 * gz_bytes.len() as f32 / blob.size() as f32,
-        br_bytes.len(),
-        100.0 * br_bytes.len() as f32 / blob.size() as f32,
-    );
-
     // Store the minified version in a blob.
     let result = MinifiedBlobs {
         minified: repo.blob(&minified_bytes[..])?,
         gz: repo.blob(&gz_bytes[..])?,
         br: repo.blob(&br_bytes[..])?,
+        sizes: Sizes {
+            original_len: blob.size(),
+            minified_len: minified_bytes.len(),
+            gz_len: gz_bytes.len(),
+            br_len: br_bytes.len(),
+        },
     };
 
     Ok(result)
@@ -185,7 +247,13 @@ fn minimize_blob_cached<'a>(
 ///
 /// This minifies .html files, and adds a Gzip and Brotli compressed version as
 /// well. Non-interesting files are dropped from the tree.
-fn minimize_tree(cache: &mut Cache, repo: &Repository, tree: &Tree, depth: u32) -> Result<Option<Oid>> {
+fn minimize_tree(
+    cache: &mut Cache,
+    sizes: &mut Sizes,
+    repo: &Repository,
+    tree: &Tree,
+    depth: u32,
+) -> Result<Option<Oid>> {
     let base_tree = None;
     let mut builder = repo.treebuilder(base_tree)?;
 
@@ -205,7 +273,7 @@ fn minimize_tree(cache: &mut Cache, repo: &Repository, tree: &Tree, depth: u32) 
                 }
 
                 let subtree = repo.find_tree(entry.id())?;
-                if let Some(sub_oid) = minimize_tree(cache, repo, &subtree, depth + 1)? {
+                if let Some(sub_oid) = minimize_tree(cache, sizes, repo, &subtree, depth + 1)? {
                     builder.insert(name, sub_oid, filemode_directory)?;
                 }
             }
@@ -215,6 +283,7 @@ fn minimize_tree(cache: &mut Cache, repo: &Repository, tree: &Tree, depth: u32) 
                     builder.insert(name, blobs.minified, filemode_regular)?;
                     builder.insert(format!("{name}.gz"), blobs.gz, filemode_regular)?;
                     builder.insert(format!("{name}.br"), blobs.br, filemode_regular)?;
+                    *sizes = *sizes + blobs.sizes;
                 }
             }
             ot => panic!("Unexpected object type in tree: {:?}", ot),
@@ -235,8 +304,10 @@ fn minimize(cache: &mut Cache, repo: &Repository) -> Result<()> {
     let tree = pages_branch.get().peel_to_tree()?;
 
     let initial_depth = 0;
-    let tree_min = minimize_tree(cache, repo, &tree, initial_depth)?;
+    let mut sizes = Sizes::default();
+    let tree_min = minimize_tree(cache, &mut sizes, repo, &tree, initial_depth)?;
     println!("Minimized tree: {:?}", tree_min);
+    println!("{}", sizes);
 
     Ok(())
 }

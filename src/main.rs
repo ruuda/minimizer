@@ -353,6 +353,8 @@ fn main() -> Result<()> {
     cache.save("cache.tsv.new").expect("Failed to save cache.");
     std::fs::rename("cache.tsv.new", "cache.tsv").expect("Failed to move cache.");
 
+    // TODO: Create a ref to avoid the root getting GC'd.
+
     checkout_into(&repo, root_tree, &target_path)?;
     println!("Checked out tree {:?} at {}.", root_tree, target_path);
 

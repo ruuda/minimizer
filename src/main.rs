@@ -1,8 +1,10 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::io;
+use std::path::Path;
 
 use git2::{BranchType, ObjectType, Oid, Repository, Tree};
+use git2::build::CheckoutBuilder;
 
 type Result<T> = std::result::Result<T, git2::Error>;
 
@@ -298,7 +300,7 @@ fn minimize_tree(
     }
 }
 
-fn minimize(cache: &mut Cache, repo: &Repository) -> Result<()> {
+fn minimize(cache: &mut Cache, repo: &Repository) -> Result<Oid> {
     let pages_branch = repo.find_branch("gh-pages", BranchType::Local)?;
     println!("Branch: {:?}", pages_branch.get().target());
     let tree = pages_branch.get().peel_to_tree()?;
@@ -309,7 +311,23 @@ fn minimize(cache: &mut Cache, repo: &Repository) -> Result<()> {
     println!("Minimized tree: {:?}", tree_min);
     println!("{}", sizes);
 
-    Ok(())
+    Ok(tree_min.expect("Must have a root tree."))
+}
+
+/// Check out the given tree at the given path.
+///
+/// This is a destructive function that clears whatever is currently at that
+/// path.
+fn checkout_into<P: AsRef<Path>>(repo: &Repository, root: Oid, target_dir: P) -> Result<()> {
+    let mut checkout_builder = CheckoutBuilder::new();
+    checkout_builder
+        .target_dir(target_dir.as_ref())
+        .update_index(false)
+        .remove_ignored(true)
+        .remove_untracked(true)
+        .force();
+    let root_obj = repo.find_object(root, Some(ObjectType::Tree))?;
+    repo.checkout_tree(&root_obj, Some(&mut checkout_builder))
 }
 
 fn main() -> Result<()> {
@@ -320,6 +338,8 @@ fn main() -> Result<()> {
     let repo_path = args.next().expect("Expected repository path.");
     let repo = Repository::open(repo_path)?;
 
+    let target_path = args.next().expect("Expected target path.");
+
     let mut cache = match Cache::load("cache.tsv") {
         Ok(cache) => cache,
         Err(err) => {
@@ -328,10 +348,13 @@ fn main() -> Result<()> {
         }
     };
 
-    minimize(&mut cache, &repo)?;
+    let root_tree = minimize(&mut cache, &repo)?;
 
     cache.save("cache.tsv.new").expect("Failed to save cache.");
     std::fs::rename("cache.tsv.new", "cache.tsv").expect("Failed to move cache.");
+
+    checkout_into(&repo, root_tree, &target_path)?;
+    println!("Checked out tree {:?} at {}.", root_tree, target_path);
 
     Ok(())
 }

@@ -287,6 +287,9 @@ fn minimize_tree(
                     builder.insert(format!("{name}.br"), blobs.br, filemode_regular)?;
                     *sizes = *sizes + blobs.sizes;
                 }
+                if name.ends_with(".png") || name.ends_with(".jpg") {
+                    builder.insert(name, entry.id(), filemode_regular)?;
+                }
             }
             ot => panic!("Unexpected object type in tree: {:?}", ot),
         }

@@ -30,8 +30,20 @@
                   "Cargo.lock"
                   "Cargo.toml"
                 ];
-                cargoLock.lockFile = ./Cargo.lock;
-                nativeBuildInputs = [ pkgs.brotli pkgs.libgit2 ];
+                cargoLock = {
+                  lockFile = ./Cargo.lock;
+                  outputHashes = {
+                    "brotli-sys-0.3.2" = "sha256-knjFVyjiW03DA5wLw7VxQmaqUJXE6B8Zs0CvoO16QaI=";
+                  };
+                };
+                nativeBuildInputs = [
+                  pkgs.pkg-config
+                ];
+                buildInputs = [
+                  pkgs.brotli
+                  pkgs.libgit2
+                  pkgs.openssl
+                ];
               };
             };
           }

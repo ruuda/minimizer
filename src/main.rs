@@ -11,9 +11,16 @@ type Result<T> = std::result::Result<T, git2::Error>;
 /// Blob oids of an html blob that we have already minified in the past.
 #[derive(Debug)]
 struct MinifiedBlobs {
+    /// Oid of the minified html.
     minified: Oid,
+
+    /// Oid of the minified and then gzipped html.
     gz: Oid,
+
+    /// Oid of the minified and then Brotli-compressed html.
     br: Oid,
+
+    /// Stats about the original and compressed file sizes.
     sizes: Sizes,
 }
 
@@ -54,7 +61,7 @@ impl std::ops::Add for Sizes {
     }
 }
 
-/// A cache of minified and comprssed blobs.
+/// A cache of minified and compressed blobs.
 ///
 /// We use a B-tree map here instead of a hash map to ensure that we can
 /// serialize in sorted order, to keep the output deterministic. The overhead
@@ -62,6 +69,7 @@ impl std::ops::Add for Sizes {
 struct Cache(BTreeMap<Oid, MinifiedBlobs>);
 
 impl Cache {
+    /// TSV header row for the serialization format.
     const HEADER: &'static str = "\
         blob\tblob_len\t\
         minified\tminified_len\t\
@@ -72,6 +80,7 @@ impl Cache {
         Self(BTreeMap::new())
     }
 
+    /// Serialize the cache into a tab-separated values document.
     fn serialize<W: io::Write>(&self, mut out: W) -> std::io::Result<()> {
         writeln!(out, "{}", Self::HEADER)?;
         for (k, v) in self.0.iter() {
@@ -91,18 +100,19 @@ impl Cache {
         Ok(())
     }
 
+    /// Read the cache from a tab-separated values document.
     fn deserialize<R: io::BufRead>(input: R) -> std::io::Result<Self> {
         use std::str::FromStr;
 
         let mut result = BTreeMap::new();
         let mut lines = input.lines();
 
+        // Skip but verify the header row, it is just there for clarity.
         match lines.next() {
             None => panic!("Failed to load cache, expected header row."),
             Some(row) => assert_eq!(row?, Self::HEADER, "Invalid header row."),
         }
 
-        // Skip the header row, it is just for clarity.
         for line_opt in lines {
             let line = line_opt?;
 
@@ -143,12 +153,14 @@ impl Cache {
         Ok(Cache(result))
     }
 
+    /// Save the cache to the given tsv file.
     pub fn save(&self, fname: &str) -> io::Result<()> {
         let f = fs::File::create(fname)?;
         let writer = io::BufWriter::new(f);
         self.serialize(writer)
     }
 
+    /// Load a cache from the given tsv file.
     pub fn load(fname: &str) -> io::Result<Self> {
         let f = fs::File::open(fname)?;
         let reader = io::BufReader::new(f);
@@ -156,6 +168,7 @@ impl Cache {
     }
 }
 
+/// Gzip-compress the input using Zopfli at high compression (slow to run).
 fn compress_zopfli(input: &[u8]) -> Vec<u8> {
     let opts = zopfli::Options {
         // Be slow but compress well, only really feasible for small files, but
@@ -172,6 +185,7 @@ fn compress_zopfli(input: &[u8]) -> Vec<u8> {
     output
 }
 
+/// Brotli-compress the input at maximum compression level.
 fn compress_brotli(input: &[u8]) -> Vec<u8> {
     use io::Write;
     let level = 11;
@@ -184,6 +198,7 @@ fn compress_brotli(input: &[u8]) -> Vec<u8> {
         .expect("No IO happens here, should not fail.")
 }
 
+/// Minimize and compress a blob that contains html.
 fn minimize_blob(repo: &Repository, id: Oid) -> Result<MinifiedBlobs> {
     let blob = repo.find_blob(id)?;
 
@@ -231,6 +246,10 @@ fn minimize_blob(repo: &Repository, id: Oid) -> Result<MinifiedBlobs> {
     Ok(result)
 }
 
+/// Like [`minimize_blob`], but return blobs from the cache if possible.
+///
+/// Also fills the cache for blobs that we minimized/compressed for the first
+/// time.
 fn minimize_blob_cached<'a>(
     cache: &'a mut Cache,
     repo: &Repository,

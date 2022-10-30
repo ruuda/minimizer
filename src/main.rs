@@ -3,8 +3,8 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use git2::{BranchType, ObjectType, Oid, Repository, Tree};
 use git2::build::CheckoutBuilder;
+use git2::{BranchType, ObjectType, Oid, Repository, Tree};
 
 type Result<T> = std::result::Result<T, git2::Error>;
 
@@ -32,9 +32,12 @@ impl std::fmt::Display for Sizes {
             f,
             "Original: {}, Minified: {} ({:.1}%), Gzip: {} ({:.1}%), Brotli: {} ({:.1}%)",
             self.original_len,
-            self.minified_len, 100.0 * self.minified_len as f32 / self.original_len as f32,
-            self.gz_len, 100.0 * self.gz_len as f32 / self.original_len as f32,
-            self.br_len, 100.0 * self.br_len as f32 / self.original_len as f32,
+            self.minified_len,
+            100.0 * self.minified_len as f32 / self.original_len as f32,
+            self.gz_len,
+            100.0 * self.gz_len as f32 / self.original_len as f32,
+            self.br_len,
+            100.0 * self.br_len as f32 / self.original_len as f32,
         )
     }
 }
@@ -104,12 +107,10 @@ impl Cache {
             let line = line_opt?;
 
             let as_oid = |part: Option<&str>| {
-                Oid::from_str(part.expect("Invalid format, expected oid."))
-                    .expect("Invalid oid.")
+                Oid::from_str(part.expect("Invalid format, expected oid.")).expect("Invalid oid.")
             };
             let as_usize = |part: Option<&str>| {
-                usize::from_str(part.expect("Invalid format, expected len."))
-                    .expect("Invalid len.")
+                usize::from_str(part.expect("Invalid format, expected len.")).expect("Invalid len.")
             };
 
             let mut parts = line.split('\t');
@@ -271,7 +272,7 @@ fn minimize_tree(
                 // in a subdirectory of the docs, but it really shouldn't be
                 // there.
                 if name == "theme" && depth == 0 {
-                    continue
+                    continue;
                 }
 
                 let subtree = repo.find_tree(entry.id())?;

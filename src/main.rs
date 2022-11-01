@@ -198,9 +198,9 @@ fn compress_brotli(input: &[u8]) -> Vec<u8> {
         .expect("No IO happens here, should not fail.")
 }
 
-/// Minimize and compress a blob that contains html.
-fn minimize_blob(repo: &Repository, id: Oid) -> Result<MinifiedBlobs> {
-    let blob = repo.find_blob(id)?;
+/// Minify html and embedded CSS. Preserves a license comment.
+fn minify_html(input: &[u8]) -> Vec<u8> {
+    use std::str;
 
     let cfg = minify_html::Cfg {
         do_not_minify_doctype: true,
@@ -215,6 +215,27 @@ fn minimize_blob(repo: &Repository, id: Oid) -> Result<MinifiedBlobs> {
         remove_processing_instructions: true,
     };
 
+    let minified_bytes = minify_html::minify(input, &cfg);
+
+    let minified_str = str::from_utf8(&minified_bytes[..])
+        .expect("File should be valid UTF-8.");
+
+    // Put back the copyright notices that minification would strip.
+    minified_str.replace(
+        "<html><head>",
+        "<html><!--\n\
+        Kilsbergen MkDocs theme copyright 2022 Ruud van Asseldonk,\n\
+        licensed Apache 2.0, https://github.com/ruuda/kilsbergen.\n\
+        Inter font family copyright Rasmus Andersson,\n\
+        licensed SIL OFL 1.1, https://rsms.me/inter/.\n--><head>"
+    ).into_bytes()
+}
+
+/// Minimize and compress a blob that contains html.
+fn minimize_blob(repo: &Repository, id: Oid) -> Result<MinifiedBlobs> {
+    let blob = repo.find_blob(id)?;
+
+
     let mut stdout = std::io::stdout().lock();
     let mut print_status = |status| {
         use std::io::Write;
@@ -223,7 +244,7 @@ fn minimize_blob(repo: &Repository, id: Oid) -> Result<MinifiedBlobs> {
     };
 
     print_status("minify");
-    let minified_bytes = minify_html::minify(blob.content(), &cfg);
+    let minified_bytes = minify_html(blob.content());
     print_status("zopfli");
     let gz_bytes = compress_zopfli(&minified_bytes[..]);
     print_status("brotli");
@@ -325,16 +346,16 @@ fn minimize_tree(
 
 fn minimize(cache: &mut Cache, repo: &Repository) -> Result<Oid> {
     let pages_branch = repo.find_branch("gh-pages", BranchType::Local)?;
-    println!("Branch: {:?}", pages_branch.get().target());
+    println!("Branch gh-pages -> {:?}", pages_branch.get().target().unwrap());
     let tree = pages_branch.get().peel_to_tree()?;
 
     let initial_depth = 0;
     let mut sizes = Sizes::default();
-    let tree_min = minimize_tree(cache, &mut sizes, repo, &tree, initial_depth)?;
-    println!("Minimized tree: {:?}", tree_min);
+    let tree_min = minimize_tree(cache, &mut sizes, repo, &tree, initial_depth)?.expect("Must have a root tree.");
+    println!("Minimized tree  -> {:?}", tree_min);
     println!("{}", sizes);
 
-    Ok(tree_min.expect("Must have a root tree."))
+    Ok(tree_min)
 }
 
 /// Check out the given tree at the given path.
@@ -365,8 +386,8 @@ fn main() -> Result<()> {
 
     let mut cache = match Cache::load("cache.tsv") {
         Ok(cache) => cache,
-        Err(err) => {
-            println!("Starting with empty cache, cache failed to load: {:?}", err);
+        Err(_) => {
+            println!("Starting with empty cache, cache failed to load.");
             Cache::new()
         }
     };

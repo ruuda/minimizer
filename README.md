@@ -68,3 +68,9 @@ deployment of Nginx on Flatcar.
 
 [flatcar]: https://www.flatcar.org/
 [miniserver]: https://github.com/ruuda/miniserver
+
+## License
+
+Minimizer is licensed under the [Apache 2.0][apache2] license.
+
+[apache2]: https://www.apache.org/licenses/LICENSE-2.0

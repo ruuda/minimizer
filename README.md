@@ -24,3 +24,12 @@ particular location. By leveraging Git, we get:
     cargo build --release
     target/release/minimizer <input-repo> <output-directory>
 
+## Building
+
+You can do a regular build with Cargo, although it may not be very portable, as
+it depends on e.g. `libbrotlienc`, `libgit2`, etc. Alternatively, you can build
+a static executable with Nix (2.10 or later, for flake support):
+
+    $ nix build
+    $ ldd result/bin/minimizer
+    statically linked

@@ -7,12 +7,12 @@
     let
       name = "minimizer";
       version = "0.1.0";
-      pkgs = import nixpkgs { system = "x86_64-linux" ; };
+      pkgs = (import nixpkgs { system = "x86_64-linux" ; }).pkgsStatic;
 
       # The default libgit2 package is incompatible with static builds, because
       # its dependency http-parser is built as a dynamic library. But we don't
       # need it anyway, it is vendored by the libgit2 crate.
-      libgit2Fixed = (pkgs.pkgsStatic.libgit2.override {
+      libgit2Fixed = (pkgs.libgit2.override {
         staticBuild = true;
         http-parser = null;
       }).overrideAttrs (oldAttrs: {
@@ -20,9 +20,7 @@
       });
     in
       {
-        packages.x86_64-linux.ls = pkgs.pkgsStatic.pcre;
-
-        packages.x86_64-linux.default = pkgs.pkgsStatic.rustPlatform.buildRustPackage rec {
+        packages.x86_64-linux.default = pkgs.rustPlatform.buildRustPackage rec {
           inherit name version;
           src = pkgs.lib.sourceFilesBySuffices ./. [
             ".rs"
@@ -36,9 +34,9 @@
             };
           };
           nativeBuildInputs = [
-            pkgs.pkgsStatic.pkg-config
+            pkgs.pkg-config
           ];
-          buildInputs = with pkgs.pkgsStatic; [
+          buildInputs = with pkgs; [
             brotli
             openssl
             libssh2
